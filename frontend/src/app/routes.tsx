@@ -5,6 +5,8 @@ import Signup from "./pages/Signup";
 import Dashboard from "./pages/Dashboard";
 import Sessions from "./pages/Sessions";
 import Backtesting from "./pages/Backtesting";
+import BacktestPage from "./pages/Backtest";
+import StrategyBuilder from "./pages/StrategyBuilder";
 import Trades from "./pages/Trades";
 import Analytics from "./pages/Analytics";
 import Assets from "./pages/Assets";
@@ -39,6 +41,10 @@ export const router = createBrowserRouter([
       {
         path: "backtesting",
         element: <Backtesting />,
+        children: [
+          { index: true, element: <BacktestPage /> },
+          { path: "builder", element: <StrategyBuilder /> },
+        ],
       },
       {
         path: "trades",

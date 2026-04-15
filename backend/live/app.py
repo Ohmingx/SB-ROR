@@ -1,7 +1,8 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from pydantic import BaseModel
 from typing import Dict, Any
 import asyncio
+from ..shared.auth import create_access_token
 
 app = FastAPI(title="SB-ROR Live/Paper Trading API")
 
@@ -19,8 +20,9 @@ PORTFOLIO: Dict[str, Any] = {"cash": 100000.0, "positions": {}}
 
 @app.post("/trade/execute")
 async def execute_order(order: Order):
-    # naive execution: immediate fill at provided price or market
-    price = order.price or 0.0
+    if order.price is None or order.price <= 0:
+        raise HTTPException(status_code=400, detail="Price must be provided for simulation")
+    price = order.price
     cost = price * order.qty
     if order.side.lower() == "buy":
         if PORTFOLIO["cash"] < cost:
@@ -75,3 +77,12 @@ async def websocket_trades(ws: WebSocket, client_id: str):
             await manager.broadcast({"from": client_id, "payload": data})
     except WebSocketDisconnect:
         manager.disconnect(client_id)
+
+
+@app.post("/auth/token")
+async def auth_token(username: str, password: str):
+    # Scaffolding: demo credentials
+    if username == "demo" and password == "demo":
+        token = create_access_token({"sub": username})
+        return {"access_token": token, "token_type": "bearer"}
+    raise HTTPException(status_code=401, detail="Invalid credentials")

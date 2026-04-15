@@ -1,0 +1,16 @@
+version: "3.8"
+services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg14
+    container_name: sb_ror_timescaledb
+    environment:
+      POSTGRES_PASSWORD: sb_ror_pass
+      POSTGRES_USER: sb_ror
+      POSTGRES_DB: sb_ror_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - tsdata:/var/lib/postgresql/data
+
+volumes:
+  tsdata:
