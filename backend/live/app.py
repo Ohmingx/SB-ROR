@@ -1,8 +1,9 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Dict, Any
 import asyncio
-from ..shared.auth import create_access_token
+from ..shared.auth import create_access_token, get_current_user, get_db, verify_password
+from ..shared.db import SessionLocal, create_demo_user, User
 
 app = FastAPI(title="SB-ROR Live/Paper Trading API")
 
@@ -19,7 +20,7 @@ PORTFOLIO: Dict[str, Any] = {"cash": 100000.0, "positions": {}}
 
 
 @app.post("/trade/execute")
-async def execute_order(order: Order):
+async def execute_order(order: Order, user=Depends(get_current_user)):
     if order.price is None or order.price <= 0:
         raise HTTPException(status_code=400, detail="Price must be provided for simulation")
     price = order.price
@@ -41,7 +42,7 @@ async def execute_order(order: Order):
 
 
 @app.get("/portfolio")
-async def get_portfolio():
+async def get_portfolio(user=Depends(get_current_user)):
     return PORTFOLIO
 
 
@@ -81,8 +82,15 @@ async def websocket_trades(ws: WebSocket, client_id: str):
 
 @app.post("/auth/token")
 async def auth_token(username: str, password: str):
-    # Scaffolding: demo credentials
-    if username == "demo" and password == "demo":
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.username == username).first()
+        if not user:
+            from ..shared.auth import get_password_hash
+            user = create_demo_user(username=username, password_hash=get_password_hash(password))
+        if not verify_password(password, user.hashed_password):
+            raise HTTPException(status_code=401, detail="Invalid credentials")
         token = create_access_token({"sub": username})
         return {"access_token": token, "token_type": "bearer"}
-    raise HTTPException(status_code=401, detail="Invalid credentials")
+    finally:
+        db.close()

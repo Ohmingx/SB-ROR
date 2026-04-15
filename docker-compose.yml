@@ -11,6 +11,26 @@ services:
       - "5432:5432"
     volumes:
       - tsdata:/var/lib/postgresql/data
+  backtesting:
+    build:
+      context: ./backend/backtesting
+    container_name: sb_ror_backtesting
+    depends_on:
+      - timescaledb
+    environment:
+      - DATABASE_URL=postgresql://sb_ror:sb_ror_pass@timescaledb:5432/sb_ror_db
+    ports:
+      - "8001:8001"
+  live:
+    build:
+      context: ./backend/live
+    container_name: sb_ror_live
+    depends_on:
+      - timescaledb
+    environment:
+      - DATABASE_URL=postgresql://sb_ror:sb_ror_pass@timescaledb:5432/sb_ror_db
+    ports:
+      - "8002:8002"
 
 volumes:
   tsdata:

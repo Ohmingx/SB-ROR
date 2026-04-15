@@ -1,7 +1,10 @@
 from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
 from .engine import run_backtest
-from ..shared.auth import create_access_token
+from ..shared.auth import create_access_token, get_current_user
+from ..shared.db import SessionLocal, create_demo_user
+from ..shared.auth import verify_password
+from ..shared.db import User
 
 app = FastAPI(title="SB-ROR Backtesting API")
 
@@ -15,7 +18,7 @@ class BacktestRequest(BaseModel):
 
 
 @app.post("/backtest/run")
-async def api_run_backtest(req: BacktestRequest):
+async def api_run_backtest(req: BacktestRequest, user=Depends(get_current_user)):
     try:
         result = run_backtest(req.symbol, req.strategy, req.start, req.end, req.params)
         return result
@@ -25,8 +28,18 @@ async def api_run_backtest(req: BacktestRequest):
 
 @app.post("/auth/token")
 async def auth_token(username: str, password: str):
-    # Scaffolding: in real app validate user cred against DB
-    if username == "demo" and password == "demo":
+    # Validate against DB; create demo user if missing
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.username == username).first()
+        if not user:
+            # create demo user with provided password (only for dev)
+            from ..shared.auth import get_password_hash
+            user = create_demo_user(username=username, password_hash=get_password_hash(password))
+        # verify password
+        if not verify_password(password, user.hashed_password):
+            raise HTTPException(status_code=401, detail="Invalid credentials")
         token = create_access_token({"sub": username})
         return {"access_token": token, "token_type": "bearer"}
-    raise HTTPException(status_code=401, detail="Invalid credentials")
+    finally:
+        db.close()

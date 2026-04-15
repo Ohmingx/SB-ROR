@@ -3,16 +3,26 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { useState } from "react";
+import { authToken } from "../services/api";
 
 export default function Login() {
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Mock login - just navigate to dashboard
-    navigate("/app");
+    try {
+      const data = await authToken(email, password);
+      // store token
+      if (data?.access_token) {
+        localStorage.setItem('sb_ror_token', data.access_token);
+      }
+      navigate('/app');
+    } catch (err) {
+      console.error(err);
+      alert('Login failed');
+    }
   };
 
   return (

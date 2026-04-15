@@ -9,3 +9,5 @@ asyncpg
 pydantic
 python-dateutil
 ta
+python-jose
+passlib[bcrypt]
