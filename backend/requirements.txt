@@ -3,3 +3,9 @@ uvicorn
 pandas
 yfinance
 python-dotenv
+numpy
+sqlalchemy
+asyncpg
+pydantic
+python-dateutil
+ta
