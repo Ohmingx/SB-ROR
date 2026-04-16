@@ -40,8 +40,46 @@ class User(Base):
     is_active = Column(Integer, default=1)
 
 
+class MarketData(Base):
+    __tablename__ = "market_data"
+    # For a hypertable, we don't necessarily use a single primary key, but SQLAlchemy expects one.
+    # We can use a composite primary key.
+    time = Column(DateTime, primary_key=True, index=True)
+    symbol = Column(String, primary_key=True, index=True)
+    open = Column(Float)
+    high = Column(Float)
+    low = Column(Float)
+    close = Column(Float)
+    volume = Column(Float)
+
+
+class Portfolio(Base):
+    __tablename__ = "portfolios"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, index=True)
+    cash = Column(Float, default=100000.0)
+    last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Position(Base):
+    __tablename__ = "positions"
+    id = Column(Integer, primary_key=True, index=True)
+    portfolio_id = Column(Integer, index=True)
+    symbol = Column(String, index=True)
+    qty = Column(Float, default=0.0)
+    avg_price = Column(Float, default=0.0)
+
+
 def create_tables():
     Base.metadata.create_all(bind=engine)
+    # If using postgresql (timescaledb), try converting market_data to a hypertable
+    if "postgresql" in DATABASE_URL:
+        from sqlalchemy import text
+        try:
+            with engine.begin() as conn:
+                conn.execute(text("SELECT create_hypertable('market_data', 'time', if_not_exists => TRUE);"))
+        except Exception as e:
+            print("Failed to create hypertable:", e)
 
 
 def create_demo_user(username: str = "demo", password_hash: str = ""):

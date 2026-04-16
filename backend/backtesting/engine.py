@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 from typing import Tuple, Dict
+from .regime import classify_regimes
 
 
 def fetch_price(symbol: str, start: str, end: str) -> pd.DataFrame:
@@ -51,25 +52,44 @@ def macd_signal(df: pd.DataFrame, fast: int = 12, slow: int = 26, signal: int = 
     return df
 
 
-def performance_metrics(equity: pd.Series) -> Dict[str, float]:
+def performance_metrics(equity: pd.Series, df: pd.DataFrame = None) -> Dict:
     returns = equity.pct_change().dropna()
     if len(returns) == 0:
         return {"sharpe": 0.0, "cagr": 0.0, "max_drawdown": 0.0}
-    sharpe = (returns.mean() / returns.std()) * np.sqrt(252)
+    sharpe = (returns.mean() / returns.std()) * np.sqrt(252) if returns.std() != 0 else 0
     total_return = equity.iloc[-1] / equity.iloc[0] - 1
     days = (equity.index[-1] - equity.index[0]).days if hasattr(equity.index, 'dtype') else len(equity)
     cagr = (1 + total_return) ** (365.0 / max(days, 1)) - 1
     roll_max = equity.cummax()
     drawdown = (equity - roll_max) / roll_max
     max_dd = drawdown.min()
-    return {"sharpe": float(sharpe), "cagr": float(cagr), "max_drawdown": float(max_dd)}
+    
+    metrics = {"sharpe": float(sharpe), "cagr": float(cagr), "max_drawdown": float(max_dd)}
+    
+    # Calculate regime-wise metrics if regime is present
+    if df is not None and "regime" in df.columns:
+        regime_stats = {}
+        for regime in df['regime'].unique():
+            regime_returns = df.loc[df['regime'] == regime, 'strategy_returns']
+            if len(regime_returns) > 0:
+                ann_return = regime_returns.mean() * 252
+                regime_stats[regime] = {"annualized_return": float(ann_return)}
+        metrics["regime_stats"] = regime_stats
+        
+    return metrics
 
 
-def run_vector_backtest(df: pd.DataFrame) -> Tuple[pd.Series, pd.DataFrame]:
+def run_vector_backtest(df: pd.DataFrame, trading_fee: float = 0.001) -> Tuple[pd.Series, pd.DataFrame]:
     df = df.copy()
+    # The 'position' represents whether we are in the market on a given day.
     df["position"] = df["signal"].shift(1).fillna(0)
     df["returns"] = df["Close"].pct_change().fillna(0)
-    df["strategy_returns"] = df["position"] * df["returns"]
+    
+    # Calculate transaction costs when position changes
+    df["trades"] = df["position"].diff().abs().fillna(0)
+    df["costs"] = df["trades"] * trading_fee
+    
+    df["strategy_returns"] = (df["position"] * df["returns"]) - df["costs"]
     df["equity"] = (1 + df["strategy_returns"]).cumprod()
     return df["equity"], df
 
@@ -94,8 +114,13 @@ def run_backtest(symbol: str, strategy: str = "sma", start: str = "2015-01-01", 
     else:
         raise ValueError("Unsupported strategy")
 
-    equity, df_out = run_vector_backtest(df)
-    metrics = performance_metrics(equity)
+    fee = float(params.get("fee", 0.001))
+    equity, df_out = run_vector_backtest(df, trading_fee=fee)
+    
+    # Run Regime Classification and merge signals
+    df_out = classify_regimes(df_out)
+    
+    metrics = performance_metrics(equity, df=df_out)
 
     return {
         "symbol": symbol,

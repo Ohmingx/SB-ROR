@@ -4,6 +4,7 @@ from typing import Dict, Any
 import asyncio
 from ..shared.auth import create_access_token, get_current_user, get_db, verify_password
 from ..shared.db import SessionLocal, create_demo_user, User
+from .replay import MarketReplayServer
 
 app = FastAPI(title="SB-ROR Live/Paper Trading API")
 
@@ -71,12 +72,45 @@ manager = ConnectionManager()
 @app.websocket("/ws/trades/{client_id}")
 async def websocket_trades(ws: WebSocket, client_id: str):
     await manager.connect(ws, client_id)
+    
+    # Callback to push data to this specific client
+    async def push_data(payload):
+        if client_id in manager.active:
+            try:
+                await manager.active[client_id].send_json(payload)
+            except Exception:
+                pass
+                
+    replay_server = MarketReplayServer(callback=push_data)
+    
     try:
         while True:
             data = await ws.receive_json()
-            # echo or broadcast simple messages
-            await manager.broadcast({"from": client_id, "payload": data})
+            command = data.get("command")
+            
+            if command == "load":
+                symbol = data.get("symbol", "RELIANCE.NS")
+                start = data.get("start", "2024-01-01")
+                end = data.get("end", "2024-12-31")
+                replay_server.load_data(symbol, start, end)
+                await manager.active[client_id].send_json({"type": "info", "msg": "Data loaded"})
+                
+            elif command == "play":
+                replay_server.play()
+                
+            elif command == "pause":
+                replay_server.pause()
+                
+            elif command == "speed":
+                # client sends speed in ms per candle, server expects seconds
+                ms = float(data.get("ms", 1000))
+                replay_server.set_speed(max(0.1, ms / 1000.0))
+                
+            else:
+                await manager.broadcast({"from": client_id, "payload": data})
+                
     except WebSocketDisconnect:
+        replay_server.pause()
         manager.disconnect(client_id)
 
 

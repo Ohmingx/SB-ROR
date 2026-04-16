@@ -1,18 +1,77 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import TradingChart from "../components/TradingChart";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Textarea } from "../components/ui/textarea";
-import { Play, Pause, SkipForward, SkipBack, Save } from "lucide-react";
+import { Play, Pause, SkipForward, SkipBack, Save, DownloadCloud } from "lucide-react";
 
 export default function Backtesting() {
   const [isPlaying, setIsPlaying] = useState(false);
-  const [speed, setSpeed] = useState("1x");
+  const [speed, setSpeed] = useState("1000"); // MS per candle
   const [positionSize, setPositionSize] = useState("1");
   const [stopLoss, setStopLoss] = useState("");
   const [takeProfit, setTakeProfit] = useState("");
+  
+  // Websocket State
+  const wsRef = useRef<WebSocket | null>(null);
+  const [marketData, setMarketData] = useState<any[]>([]);
+  const [isConnected, setIsConnected] = useState(false);
+
+  useEffect(() => {
+    // Generate random client ID
+    const clientId = Math.random().toString(36).substring(7);
+    const wsUrl = `ws://localhost:8002/ws/trades/${clientId}`;
+    const ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => setIsConnected(true);
+    ws.onclose = () => setIsConnected(false);
+    
+    ws.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        if (payload.type === 'market_data') {
+           setMarketData(prev => {
+             // Keep last 500 candles max
+             const updated = [...prev, payload.data];
+             if(updated.length > 500) return updated.slice(-500);
+             return updated;
+           });
+        }
+      } catch (err) {}
+    };
+
+    wsRef.current = ws;
+    return () => ws.close();
+  }, []);
+
+  const handleSocketCommand = (cmd: any) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify(cmd));
+    }
+  };
+
+  const togglePlay = () => {
+    if (isPlaying) {
+      handleSocketCommand({ command: 'pause' });
+    } else {
+      handleSocketCommand({ command: 'play' });
+    }
+    setIsPlaying(!isPlaying);
+  };
+  
+  const handleLoadData = () => {
+      handleSocketCommand({ command: 'load', symbol: 'RELIANCE.NS', start: '2023-01-01', end: '2024-01-01' });
+      setMarketData([]); // flush state
+      alert("Loading engine data...");
+  };
+
+  const handleSpeedChange = (val: string) => {
+      setSpeed(val);
+      handleSocketCommand({ command: 'speed', ms: parseInt(val) });
+  };
+
   const [strategyCode, setStrategyCode] = useState(
 `# Example Strategy
 if sma(50) crosses above sma(200):
@@ -46,12 +105,22 @@ if loss >= 2%:
         <div className="mb-4">
           <div className="flex items-center justify-between mb-2">
             <div>
-              <h1 className="text-2xl font-bold">Backtesting</h1>
-              <p className="text-sm text-muted-foreground">BTCUSDT • 1H</p>
+              <h1 className="text-2xl font-bold flex items-center gap-2">
+                  Market Replay
+                  <span className={`h-2 w-2 rounded-full ${isConnected ? 'bg-success' : 'bg-destructive'}`}></span>
+              </h1>
+              <p className="text-sm text-muted-foreground">RELIANCE.NS • 1D</p>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">Current Price:</span>
-              <span className="text-lg font-semibold text-success">$51,234.56</span>
+            <div className="flex items-center gap-4">
+              <Button onClick={handleLoadData} size="sm" variant="outline">
+                  <DownloadCloud className="w-4 h-4 mr-2" /> Load Ticker
+              </Button>
+              <div className="flex flex-col items-end">
+                  <span className="text-sm text-muted-foreground">Current Simulated Price:</span>
+                  <span className="text-lg font-semibold text-success">
+                      ${marketData.length > 0 ? Number(marketData[marketData.length-1].close).toFixed(2) : "0.00"}
+                  </span>
+              </div>
             </div>
           </div>
 
@@ -67,7 +136,7 @@ if loss >= 2%:
 
         {/* Chart */}
         <div className="bg-card border border-border rounded-lg p-4 mb-4 flex-1 min-h-[400px]">
-          <TradingChart height={500} />
+          <TradingChart height={500} data={marketData.length > 0 ? marketData.map(d => ({time: new Date(d.time).getTime()/1000, open: d.open, high: d.high, low: d.low, close: d.close})) : undefined} />
         </div>
 
         {/* Replay Controls */}
@@ -83,7 +152,7 @@ if loss >= 2%:
               </Button>
               <Button
                 size="icon"
-                onClick={() => setIsPlaying(!isPlaying)}
+                onClick={togglePlay}
                 className="w-12 h-12"
               >
                 {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
@@ -99,15 +168,15 @@ if loss >= 2%:
 
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">Speed:</span>
-              <Select value={speed} onValueChange={setSpeed}>
-                <SelectTrigger className="w-20 bg-input-background">
+              <Select value={speed} onValueChange={handleSpeedChange}>
+                <SelectTrigger className="w-24 bg-input-background">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="1x">1x</SelectItem>
-                  <SelectItem value="2x">2x</SelectItem>
-                  <SelectItem value="5x">5x</SelectItem>
-                  <SelectItem value="10x">10x</SelectItem>
+                  <SelectItem value="2000">Slow</SelectItem>
+                  <SelectItem value="1000">1x (1s)</SelectItem>
+                  <SelectItem value="300">Fast</SelectItem>
+                  <SelectItem value="50">Turbo</SelectItem>
                 </SelectContent>
               </Select>
             </div>
